@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Config Registry</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <a class="brand" href="/" aria-label="Agent Config Registry">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Agent Config Registry</span>
+      </a>
+      <nav class="nav" aria-label="Workspace">
+        <button type="button" data-view="experiments" aria-current="page">Experiments</button>
+        <button type="button" data-view="assets">Assets</button>
+        <button type="button" data-view="schemas">Schemas</button>
+      </nav>
+    </div>
+  </header>
+  <main id="workspace" class="workspace" aria-busy="true">
+    <p class="muted">Loading workspace…</p>
+  </main>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <dialog id="dialog" aria-labelledby="dialog-title">
+    <div class="dialog-head">
+      <h2 id="dialog-title"></h2>
+      <button type="button" class="button icon" id="close-dialog" aria-label="Close dialog">×</button>
+    </div>
+    <div id="dialog-content"></div>
+  </dialog>
+</body>
+</html>
