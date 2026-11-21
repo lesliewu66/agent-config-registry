@@ -1,0 +1,23 @@
+{
+  "schemas": [
+    {"key":"chat-agent","name":"Chat Agent","kind":"agent","definition":{"type":"object","required":["model"],"properties":{"model":{"type":"string","minLength":1},"timeoutMs":{"type":"integer","minimum":1}}}},
+    {"key":"routing-agent","name":"Routing Agent","kind":"agent","definition":{"type":"object","required":["routingMode"],"properties":{"routingMode":{"type":"string","enum":["rules","model"]},"maxCandidates":{"type":"integer","minimum":1}}}},
+    {"key":"search-skill","name":"Search Skill","kind":"skill","definition":{"type":"object","required":["topK"],"properties":{"topK":{"type":"integer","minimum":1},"corpus":{"type":"string"}}}},
+    {"key":"text-prompt","name":"Text Prompt","kind":"prompt","definition":{"type":"object","required":["template"],"properties":{"template":{"type":"string","minLength":1}}}}
+  ],
+  "assets": [
+    {"key":"support-agent","name":"Support Agent","schema":{"key":"chat-agent","version":1},"versions":[{"model":"example-chat","timeoutMs":3000}]},
+    {"key":"dispatch-agent","name":"Dispatch Agent","schema":{"key":"routing-agent","version":1},"versions":[{"routingMode":"rules","maxCandidates":2}]},
+    {"key":"knowledge-search","name":"Knowledge Search","schema":{"key":"search-skill","version":1},"versions":[{"topK":1,"corpus":"help-center"},{"topK":2,"corpus":"help-center"},{"topK":3,"corpus":"help-center"},{"topK":5,"corpus":"help-center"}]},
+    {"key":"ticket-lookup","name":"Ticket Lookup","schema":{"key":"search-skill","version":1},"versions":[{"topK":1,"corpus":"tickets"},{"topK":2,"corpus":"tickets"}]},
+    {"key":"intake-prompt","name":"Intake Instructions","schema":{"key":"text-prompt","version":1},"versions":[{"template":"Summarize the issue and identify the requested next step."}]}
+  ],
+  "experiment": {
+    "tag":"support-routing",
+    "name":"Support routing",
+    "agents":[
+      {"slot":"intake","assetKey":"support-agent","version":1,"dependencies":[{"slot":"knowledge","assetKey":"knowledge-search","version":3},{"slot":"instructions","assetKey":"intake-prompt","version":1}]},
+      {"slot":"dispatch","assetKey":"dispatch-agent","version":1,"dependencies":[{"slot":"knowledge","assetKey":"knowledge-search","version":4},{"slot":"ticket","assetKey":"ticket-lookup","version":2}]}
+    ]
+  }
+}
