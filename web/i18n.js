@@ -168,6 +168,10 @@ function t(message, values = {}) {
 }
 
 const sampleNames = new Map([
+  ["image-routing", ["Image routing", "有图／无图路由"]],
+  ["image-routing-profile", ["Image routing profile", "图片路由组合结构"]],
+  ["image-intake-agent", ["Image Intake Agent", "图片接待 Agent"]],
+  ["text-intake-agent", ["Text Intake Agent", "文本接待 Agent"]],
   ["schema-routing", ["Schema routing", "Schema 路由实验"]],
   ["routing-profile", ["Routing Experiment", "路由实验配置"]],
   ["schema-agent", ["Agent with dependencies", "带依赖的 Agent"]],
