@@ -81,13 +81,17 @@ type AgentRef struct {
 }
 
 type Draft struct {
-	Revision int64      `json:"revision"`
-	Agents   []AgentRef `json:"agents"`
+	Revision int64           `json:"revision"`
+	Agents   []AgentRef      `json:"agents"`
+	Schema   *SchemaRef      `json:"schema,omitempty"`
+	Config   json.RawMessage `json:"config,omitempty"`
 }
 
 type DraftInput struct {
-	ExpectedRevision *int64     `json:"expectedRevision"`
-	Agents           []AgentRef `json:"agents"`
+	ExpectedRevision *int64          `json:"expectedRevision"`
+	Agents           []AgentRef      `json:"agents"`
+	Schema           *SchemaRef      `json:"schema,omitempty"`
+	Config           json.RawMessage `json:"config,omitempty"`
 }
 
 type PublishInput struct {
@@ -117,8 +121,10 @@ type ReleaseMeta struct {
 
 type ExperimentDetail struct {
 	Experiment
-	Agents   []AgentRef    `json:"agents"`
-	Releases []ReleaseMeta `json:"releases"`
+	Schema   *SchemaRef      `json:"schema,omitempty"`
+	Config   json.RawMessage `json:"config,omitempty"`
+	Agents   []AgentRef      `json:"agents"`
+	Releases []ReleaseMeta   `json:"releases"`
 }
 
 type ResolvedAsset struct {
@@ -138,6 +144,8 @@ type Config struct {
 	Tag  string `json:"tag"`
 	Name string `json:"name"`
 	ReleaseMeta
+	Schema *SchemaRef      `json:"schema,omitempty"`
+	Config json.RawMessage `json:"config,omitempty"`
 	Agents []ResolvedAgent `json:"agents"`
 }
 
@@ -183,10 +191,10 @@ func checkName(name string) error {
 
 func checkKind(kind string) error {
 	switch kind {
-	case "agent", "skill", "prompt":
+	case "agent", "skill", "prompt", "experiment":
 		return nil
 	default:
-		return invalid("kind must be agent, skill or prompt")
+		return invalid("kind must be agent, skill, prompt or experiment")
 	}
 }
 
@@ -203,8 +211,12 @@ func compileSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 	if err != nil {
 		return nil, unprocessable("invalid JSON Schema: %v", err)
 	}
-	if _, ok := doc.(map[string]any); !ok {
+	object, ok := doc.(map[string]any)
+	if !ok {
 		return nil, unprocessable("schema definition must be a JSON object")
+	}
+	if err := checkAssetAnnotations(object, ""); err != nil {
+		return nil, err
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)

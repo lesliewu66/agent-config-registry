@@ -1,0 +1,172 @@
+{
+  "schemas": [
+    {
+      "key": "routing-profile",
+      "name": "Routing Experiment",
+      "kind": "experiment",
+      "definition": {
+        "type": "object",
+        "required": [
+          "primary",
+          "candidates",
+          "requestTimeoutMs"
+        ],
+        "properties": {
+          "primary": {
+            "x-asset": "agent",
+            "title": "Primary Agent",
+            "x-title": {
+              "zh-CN": "主 Agent"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "title": "Candidate Agents",
+            "items": {
+              "$ref": "#/$defs/agent"
+            },
+            "x-title": {
+              "zh-CN": "候选 Agent"
+            }
+          },
+          "requestTimeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Request timeout (ms)",
+            "x-title": {
+              "zh-CN": "请求超时"
+            }
+          }
+        },
+        "$defs": {
+          "agent": {
+            "x-asset": "agent"
+          }
+        }
+      }
+    },
+    {
+      "key": "schema-agent",
+      "name": "Agent with dependencies",
+      "kind": "agent",
+      "definition": {
+        "type": "object",
+        "required": [
+          "model",
+          "tools"
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "x-title": {
+              "zh-CN": "模型"
+            }
+          },
+          "tools": {
+            "type": "object",
+            "title": "Tools",
+            "properties": {
+              "skills": {
+                "title": "Skills",
+                "type": "array",
+                "items": {
+                  "x-asset": "skill"
+                },
+                "x-title": {
+                  "zh-CN": "Skill 列表"
+                }
+              },
+              "instructions": {
+                "title": "System prompt",
+                "x-asset": "prompt",
+                "x-title": {
+                  "zh-CN": "系统 Prompt"
+                }
+              }
+            },
+            "required": [
+              "skills"
+            ],
+            "x-title": {
+              "zh-CN": "工具"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "assets": [
+    {
+      "key": "schema-support-agent",
+      "name": "Schema Support Agent",
+      "schema": {
+        "key": "schema-agent",
+        "version": 1
+      },
+      "versions": [
+        {
+          "model": "example-chat",
+          "tools": {
+            "skills": [
+              {
+                "assetKey": "knowledge-search",
+                "version": 3
+              }
+            ],
+            "instructions": {
+              "assetKey": "intake-prompt",
+              "version": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "schema-dispatch-agent",
+      "name": "Schema Dispatch Agent",
+      "schema": {
+        "key": "schema-agent",
+        "version": 1
+      },
+      "versions": [
+        {
+          "model": "example-router",
+          "tools": {
+            "skills": [
+              {
+                "assetKey": "knowledge-search",
+                "version": 4
+              },
+              {
+                "assetKey": "ticket-lookup",
+                "version": 2
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "experiment": {
+    "tag": "schema-routing",
+    "name": "Schema routing",
+    "schema": {
+      "key": "routing-profile",
+      "version": 1
+    },
+    "config": {
+      "primary": {
+        "assetKey": "schema-support-agent",
+        "version": 1
+      },
+      "candidates": [
+        {
+          "assetKey": "schema-dispatch-agent",
+          "version": 1
+        }
+      ],
+      "requestTimeoutMs": 3000
+    }
+  }
+}

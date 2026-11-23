@@ -17,10 +17,13 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 //go:embed examples/support-routing.json
 var demoJSON []byte
+
+//go:embed examples/schema-routing.json
+var schemaDemoJSON []byte
 
 func main() {
 	if err := run(); err != nil {
@@ -107,28 +110,13 @@ func seedDemo(ctx context.Context, store *Store) error {
 		var existing int
 		err := tx.QueryRowContext(ctx, "SELECT 1 FROM experiments WHERE tag = ?", demo.Experiment.Tag).Scan(&existing)
 		if err == nil {
-			return struct{}{}, nil
+			return struct{}{}, seedSchemaDemo(ctx, tx)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return struct{}{}, err
 		}
-		for _, schema := range demo.Schemas {
-			if _, err := createSchema(ctx, tx, schema); err != nil {
-				return struct{}{}, err
-			}
-		}
-		for _, asset := range demo.Assets {
-			if len(asset.Versions) == 0 {
-				return struct{}{}, fmt.Errorf("demo asset %q has no versions", asset.Key)
-			}
-			if _, err := createAsset(ctx, tx, NewAsset{Key: asset.Key, Name: asset.Name, Schema: asset.Schema, Config: asset.Versions[0]}); err != nil {
-				return struct{}{}, err
-			}
-			for i, config := range asset.Versions[1:] {
-				if _, err := addVersion(ctx, tx, asset.Key, VersionInput{BaseVersion: int64(i + 1), Schema: asset.Schema, Config: config}); err != nil {
-					return struct{}{}, err
-				}
-			}
+		if err := seedAssets(ctx, tx, demo.Schemas, demo.Assets); err != nil {
+			return struct{}{}, err
 		}
 		exp := demo.Experiment
 		if _, err := createExperiment(ctx, tx, exp.Tag, exp.Name); err != nil {
@@ -138,8 +126,72 @@ func seedDemo(ctx context.Context, store *Store) error {
 		if err != nil {
 			return struct{}{}, err
 		}
-		_, err = publish(ctx, tx, exp.Tag, draft.Revision, nil)
-		return struct{}{}, err
+		if _, err = publish(ctx, tx, exp.Tag, draft.Revision, nil); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, seedSchemaDemo(ctx, tx)
 	})
+	return err
+}
+
+func seedAssets(ctx context.Context, tx *sql.Tx, schemas []NewSchema, assets []demoAsset) error {
+	for _, schema := range schemas {
+		if _, err := createSchema(ctx, tx, schema); err != nil {
+			return err
+		}
+	}
+	for _, asset := range assets {
+		if len(asset.Versions) == 0 {
+			return fmt.Errorf("demo asset %q has no versions", asset.Key)
+		}
+		if _, err := createAsset(ctx, tx, NewAsset{Key: asset.Key, Name: asset.Name, Schema: asset.Schema, Config: asset.Versions[0]}); err != nil {
+			return err
+		}
+		for i, config := range asset.Versions[1:] {
+			if _, err := addVersion(ctx, tx, asset.Key, VersionInput{BaseVersion: int64(i + 1), Schema: asset.Schema, Config: config}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func seedSchemaDemo(ctx context.Context, tx *sql.Tx) error {
+	var demo struct {
+		Schemas    []NewSchema
+		Assets     []demoAsset
+		Experiment struct {
+			Tag    string
+			Name   string
+			Schema SchemaRef
+			Config json.RawMessage
+		}
+	}
+	if err := json.Unmarshal(schemaDemoJSON, &demo); err != nil {
+		return err
+	}
+	exp := demo.Experiment
+	var existing int
+	err := tx.QueryRowContext(ctx, "SELECT 1 FROM experiments WHERE tag = ?", exp.Tag).Scan(&existing)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err := seedAssets(ctx, tx, demo.Schemas, demo.Assets); err != nil {
+		return err
+	}
+	if _, err := createExperiment(ctx, tx, exp.Tag, exp.Name); err != nil {
+		return err
+	}
+	if err := attachSchemaDraft(ctx, tx, exp.Tag, exp.Schema); err != nil {
+		return err
+	}
+	draft, err := saveSchemaDraft(ctx, tx, exp.Tag, 0, exp.Schema, exp.Config)
+	if err != nil {
+		return err
+	}
+	_, err = publish(ctx, tx, exp.Tag, draft.Revision, nil)
 	return err
 }
