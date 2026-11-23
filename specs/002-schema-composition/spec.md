@@ -35,7 +35,9 @@ GET /api/v1/config?tag=schema-routing&releaseId=schema-routing%401
 
 ## 业务字段和分支
 
-组合 Schema 同时描述业务值和资产引用。[有图／无图样例](../../examples/image-routing.json) 包含业务标识 `businessKey`、`branches.withImage` 和 `branches.withoutImage`。每个分支都有布尔条件 `when.hasImage`、Agent 引用和独立的超时参数。调用方按标签取一次完整配置，再根据实际输入选择分支。例如，调用方可用 `Object.values(config.branches).find(({ when }) => when.hasImage === hasImage)` 选择符合输入条件的分支。
+组合 Schema 同时描述业务值和资产引用。[有图／无图样例](../../examples/image-routing.json) 包含业务标识 `businessKey`、`branches.withImage` 和 `branches.withoutImage`。每个分支都有业务自定义的 `when.hasImage`、Agent 引用和独立的超时参数。
+
+`when` 和 `branches` 都是普通业务字段，名称、类型和含义由调用方的 Schema 决定。平台按 Schema 校验这些字段，并把值保存到发布快照。资产展开由 `x-asset` 声明触发。业务如何解释字段、是否匹配条件、走哪个分支，都由调用方决定。组合配置也可以只包含普通业务字段。
 
 ## 验收
 
