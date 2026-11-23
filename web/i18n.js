@@ -142,7 +142,32 @@ const chineseMessages = {
   "Lookup by tag": "按标签读取",
   "Publication history ({count})": "发布历史（{count}）",
   "Fixed Agent bindings use the original editor.": "固定 Agent 绑定使用旧版编辑器。",
-  "Choose an available composition schema.": "请选择可用的组合结构。"
+  "Choose an available composition schema.": "请选择可用的组合结构。",
+  "Asset schemas": "资产 Schema",
+  "Composition schemas": "组合 Schema",
+  "Schema categories": "Schema 分类",
+  "Composition schema reference": "组合 Schema",
+  "New asset schema": "新建资产 Schema",
+  "New composition schema": "新建组合 Schema",
+  "No composition schemas yet": "还没有组合 Schema",
+  "Register a schema to define the fields in a configuration group.": "用 JSON Schema 定义配置组的字段。",
+  "View schema": "查看 Schema",
+  "Schema fields": "字段",
+  "Schema JSON": "Schema JSON",
+  "Required": "必填",
+  "Asset reference": "资产引用",
+  "Array item": "数组元素",
+  "String type": "字符串",
+  "Boolean type": "布尔值",
+  "Integer type": "整数",
+  "Number type": "数字",
+  "Object type": "对象",
+  "Array type": "数组",
+  "Null type": "空值",
+  "Enum type": "枚举",
+  "Any type": "任意类型",
+  "Use Schema JSON to inspect the complete definition.": "可以切换到 JSON 查看完整定义。",
+  "No named fields declared.": "此 Schema 未声明具名字段。"
 };
 const languagePreferenceKey = "agent-config-registry.language";
 

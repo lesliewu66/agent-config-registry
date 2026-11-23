@@ -23,7 +23,7 @@ curl 'http://127.0.0.1:8080/api/v1/config?tag=support-routing&releaseId=support-
 
 With the console switched to English, use **Assets → Versions → Create next version** to add Knowledge Search v5. In **Compositions**, open **Support routing** and edit the intake Agent’s knowledge binding, save the draft, and use **Preview & publish**. The tag switches only when the release succeeds. Use **Publication history → Activate** to return the tag to the first snapshot.
 
-For your own data, start with a fresh database and register a schema in **Schemas**. **Assets → Import asset** accepts pasted JSON, a JSON file, or common fields generated from the schema. Create an **Experiment** schema with `x-asset` fields, then select that schema when creating a group. Choose assets and exact versions, then preview the resolved structure or JSON before publishing.
+For your own data, start with a fresh database and register an asset schema in **Schemas → Asset schemas**. **Assets → Import asset** accepts pasted JSON, a JSON file, or common fields generated from the schema. Create a group schema in **Schemas → Composition schemas** with `x-asset` fields, then select that schema when creating a group. Choose assets and exact versions, inspect the pinned Schema beside the form, and preview the resolved structure or JSON before publishing.
 
 ```sh
 CGO_ENABLED=1 go run . -addr 127.0.0.1:8090 -db data/my-registry.db

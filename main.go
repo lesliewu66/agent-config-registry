@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const version = "0.2.2"
+const version = "0.2.3"
 
 //go:embed examples/support-routing.json
 var demoJSON []byte
