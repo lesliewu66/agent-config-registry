@@ -365,3 +365,44 @@ func TestMigrateLegacyDatabase(t *testing.T) {
 		t.Fatalf("foreign keys disabled after migration, enabled=%d error=%v", enabled, err)
 	}
 }
+
+func TestDemoPublishesBusinessFieldsAlongsideBranchAssets(t *testing.T) {
+	_, h, _ := testAPI(t, true)
+	path := "/api/v1/config?tag=image-routing"
+	body := invoke(t, h, 200, "GET", path, "")
+	type branch struct {
+		When struct {
+			HasImage *bool `json:"hasImage"`
+		} `json:"when"`
+		Agent struct {
+			AssetKey string `json:"assetKey"`
+			Version  int    `json:"version"`
+			Config   struct {
+				Tools struct {
+					Skills []Ref `json:"skills"`
+				} `json:"tools"`
+			} `json:"config"`
+		} `json:"agent"`
+		TimeoutMS int `json:"timeoutMs"`
+	}
+	published := decodeTest[struct {
+		ReleaseID string `json:"releaseId"`
+		Config    struct {
+			BusinessKey string            `json:"businessKey"`
+			Branches    map[string]branch `json:"branches"`
+		} `json:"config"`
+	}](t, body)
+	image := published.Config.Branches["withImage"]
+	text := published.Config.Branches["withoutImage"]
+	if published.ReleaseID != "image-routing@1" || published.Config.BusinessKey != "customer-support" ||
+		image.When.HasImage == nil || text.When.HasImage == nil || !*image.When.HasImage || *text.When.HasImage ||
+		image.TimeoutMS != 6000 || text.TimeoutMS != 2500 {
+		t.Fatalf("business values were not preserved: %s", body)
+	}
+	if image.Agent.AssetKey != "image-intake-agent" || text.Agent.AssetKey != "text-intake-agent" ||
+		image.Agent.Version != 1 || text.Agent.Version != 1 ||
+		len(image.Agent.Config.Tools.Skills) != 1 || image.Agent.Config.Tools.Skills[0].Version != 4 ||
+		len(text.Agent.Config.Tools.Skills) != 1 || text.Agent.Config.Tools.Skills[0].Version != 3 {
+		t.Fatalf("branch assets did not resolve independently: %s", body)
+	}
+}

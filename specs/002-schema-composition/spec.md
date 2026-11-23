@@ -33,6 +33,10 @@ GET /api/v1/config?tag=schema-routing&releaseId=schema-routing%401
 
 若有对照组和实验组，可分别发布到例如 `routing-control` 和 `routing-treatment`，由调用方分流后选择相应的 tag。资产版本可以被多个实验复用。旧版 Agent 固定绑定的实验仍按原格式返回 `agents` 列表。
 
+## 业务字段和分支
+
+组合 Schema 同时描述业务值和资产引用。[有图／无图样例](../../examples/image-routing.json) 包含业务标识 `businessKey`、`branches.withImage` 和 `branches.withoutImage`。每个分支都有布尔条件 `when.hasImage`、Agent 引用和独立的超时参数。调用方按标签取一次完整配置，再根据实际输入选择分支。例如，调用方可用 `Object.values(config.branches).find(({ when }) => when.hasImage === hasImage)` 选择符合输入条件的分支。
+
 ## 验收
 
 1. 创建自定义实验组 Schema，可以填写资产、数组和普通参数。填写项和输出字段名由 Schema 决定。

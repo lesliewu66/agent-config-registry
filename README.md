@@ -14,10 +14,10 @@ cd agent-config-registry
 CGO_ENABLED=1 go run . -demo
 ```
 
-Open [the local console](http://127.0.0.1:8080). The demo opens **Schema 路由实验 / Schema routing**. It also includes the original **客服路由实验 / Support routing** experiment. The console defaults to Simplified Chinese. Use **English** in the header to switch, and it remembers your choice. Both examples demonstrate two Agents pinning **Knowledge Search v3** and **v4**, respectively.
+Open [the local console](http://127.0.0.1:8080). The demo opens **有图／无图路由 / Image routing**, which combines a business key, branch conditions, timeouts, and Agent versions in one schema. It also includes **Schema routing** and **Support routing**. The console defaults to Simplified Chinese. Use **English** in the header to switch, and it remembers your choice. The examples demonstrate two Agents pinning **Knowledge Search v3** and **v4**, respectively.
 
 ```sh
-curl 'http://127.0.0.1:8080/api/v1/config?tag=schema-routing'
+curl 'http://127.0.0.1:8080/api/v1/config?tag=image-routing'
 curl 'http://127.0.0.1:8080/api/v1/config?tag=support-routing&releaseId=support-routing%401'
 ```
 
@@ -48,6 +48,7 @@ The tests exercise the HTTP handlers against SQLite. They check schema validatio
 - [Schema-driven composition](specs/002-schema-composition/spec.md)
 - [Product specification](specs/001-experiment-config/spec.md)
 - [Technical design](specs/001-experiment-config/plan.md)
+- [Business fields and branching example](examples/image-routing.json)
 - [Schema-driven example](examples/schema-routing.json)
 - [Original demo schemas and assets](examples/support-routing.json)
 

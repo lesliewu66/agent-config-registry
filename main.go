@@ -17,13 +17,16 @@ import (
 	"time"
 )
 
-const version = "0.2.1"
+const version = "0.2.2"
 
 //go:embed examples/support-routing.json
 var demoJSON []byte
 
 //go:embed examples/schema-routing.json
 var schemaDemoJSON []byte
+
+//go:embed examples/image-routing.json
+var imageDemoJSON []byte
 
 func main() {
 	if err := run(); err != nil {
@@ -110,7 +113,7 @@ func seedDemo(ctx context.Context, store *Store) error {
 		var existing int
 		err := tx.QueryRowContext(ctx, "SELECT 1 FROM experiments WHERE tag = ?", demo.Experiment.Tag).Scan(&existing)
 		if err == nil {
-			return struct{}{}, seedSchemaDemo(ctx, tx)
+			return struct{}{}, seedCompositionDemos(ctx, tx)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return struct{}{}, err
@@ -129,7 +132,7 @@ func seedDemo(ctx context.Context, store *Store) error {
 		if _, err = publish(ctx, tx, exp.Tag, draft.Revision, nil); err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, seedSchemaDemo(ctx, tx)
+		return struct{}{}, seedCompositionDemos(ctx, tx)
 	})
 	return err
 }
@@ -156,7 +159,16 @@ func seedAssets(ctx context.Context, tx *sql.Tx, schemas []NewSchema, assets []d
 	return nil
 }
 
-func seedSchemaDemo(ctx context.Context, tx *sql.Tx) error {
+func seedCompositionDemos(ctx context.Context, tx *sql.Tx) error {
+	for _, fixture := range [][]byte{schemaDemoJSON, imageDemoJSON} {
+		if err := seedCompositionDemo(ctx, tx, fixture); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedCompositionDemo(ctx context.Context, tx *sql.Tx, fixture []byte) error {
 	var demo struct {
 		Schemas    []NewSchema
 		Assets     []demoAsset
@@ -167,7 +179,7 @@ func seedSchemaDemo(ctx context.Context, tx *sql.Tx) error {
 			Config json.RawMessage
 		}
 	}
-	if err := json.Unmarshal(schemaDemoJSON, &demo); err != nil {
+	if err := json.Unmarshal(fixture, &demo); err != nil {
 		return err
 	}
 	exp := demo.Experiment

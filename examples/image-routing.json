@@ -1,0 +1,109 @@
+{
+  "schemas": [
+    {
+      "key": "image-routing-profile",
+      "name": "Image routing profile",
+      "kind": "experiment",
+      "definition": {
+        "type": "object",
+        "required": ["businessKey", "branches"],
+        "properties": {
+          "businessKey": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Business key",
+            "x-title": { "zh-CN": "业务标识" }
+          },
+          "branches": {
+            "type": "object",
+            "title": "Branch configuration",
+            "x-title": { "zh-CN": "分支配置" },
+            "required": ["withImage", "withoutImage"],
+            "properties": {
+              "withImage": {
+                "$ref": "#/$defs/branch",
+                "title": "With image",
+                "x-title": { "zh-CN": "有图分支" }
+              },
+              "withoutImage": {
+                "$ref": "#/$defs/branch",
+                "title": "Without image",
+                "x-title": { "zh-CN": "无图分支" }
+              }
+            }
+          }
+        },
+        "$defs": {
+          "branch": {
+            "type": "object",
+            "required": ["when", "agent", "timeoutMs"],
+            "properties": {
+              "when": {
+                "type": "object",
+                "title": "Match condition",
+                "x-title": { "zh-CN": "匹配条件" },
+                "required": ["hasImage"],
+                "properties": {
+                  "hasImage": {
+                    "type": "boolean",
+                    "title": "Has image",
+                    "x-title": { "zh-CN": "是否有图" }
+                  }
+                }
+              },
+              "agent": {
+                "x-asset": "agent",
+                "title": "Agent for this branch",
+                "x-title": { "zh-CN": "分支 Agent" }
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "title": "Timeout (ms)",
+                "x-title": { "zh-CN": "超时（毫秒）" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "assets": [
+    {
+      "key": "image-intake-agent",
+      "name": "Image Intake Agent",
+      "schema": { "key": "schema-agent", "version": 1 },
+      "versions": [
+        { "model": "example-vision", "tools": { "skills": [{ "assetKey": "knowledge-search", "version": 4 }] } }
+      ]
+    },
+    {
+      "key": "text-intake-agent",
+      "name": "Text Intake Agent",
+      "schema": { "key": "schema-agent", "version": 1 },
+      "versions": [
+        { "model": "example-text", "tools": { "skills": [{ "assetKey": "knowledge-search", "version": 3 }] } }
+      ]
+    }
+  ],
+  "experiment": {
+    "tag": "image-routing",
+    "name": "Image routing",
+    "schema": { "key": "image-routing-profile", "version": 1 },
+    "config": {
+      "businessKey": "customer-support",
+      "branches": {
+        "withImage": {
+          "when": { "hasImage": true },
+          "agent": { "assetKey": "image-intake-agent", "version": 1 },
+          "timeoutMs": 6000
+        },
+        "withoutImage": {
+          "when": { "hasImage": false },
+          "agent": { "assetKey": "text-intake-agent", "version": 1 },
+          "timeoutMs": 2500
+        }
+      }
+    }
+  }
+}
