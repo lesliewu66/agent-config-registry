@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS schemas (
     key TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('agent', 'skill', 'prompt'))
+    kind TEXT NOT NULL CHECK (kind IN ('agent', 'skill', 'prompt', 'experiment'))
 );
 
 CREATE TABLE IF NOT EXISTS schema_versions (
@@ -71,4 +71,12 @@ CREATE TABLE IF NOT EXISTS active_releases (
     tag TEXT PRIMARY KEY,
     release INTEGER NOT NULL,
     FOREIGN KEY (tag, release) REFERENCES releases(tag, release)
+);
+
+CREATE TABLE IF NOT EXISTS schema_drafts (
+    tag TEXT PRIMARY KEY REFERENCES experiments(tag),
+    schema_key TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    config TEXT,
+    FOREIGN KEY (schema_key, schema_version) REFERENCES schema_versions(schema_key, version)
 );

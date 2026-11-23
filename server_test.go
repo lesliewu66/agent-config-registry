@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -114,12 +115,12 @@ func TestReleaseReadbackAndRollback(t *testing.T) {
 	detail := decodeTest[ExperimentDetail](t, invoke(t, h, 200, "GET", experimentPath, ""))
 	revision := detail.Revision
 	detail.Agents[0].Dependencies[0].Version = 99
-	invoke(t, h, 422, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{&revision, detail.Agents}))
+	invoke(t, h, 422, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{ExpectedRevision: &revision, Agents: detail.Agents}))
 	detail.Agents[0].Dependencies[0] = Ref{Slot: "knowledge", AssetKey: "support-agent", Version: 1}
-	invoke(t, h, 422, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{&revision, detail.Agents}))
+	invoke(t, h, 422, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{ExpectedRevision: &revision, Agents: detail.Agents}))
 	detail.Agents[0].Dependencies[0] = Ref{Slot: "knowledge", AssetKey: "knowledge-search", Version: 5}
-	draft := decodeTest[Draft](t, invoke(t, h, 200, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{&revision, detail.Agents})))
-	invoke(t, h, 409, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{&revision, detail.Agents}))
+	draft := decodeTest[Draft](t, invoke(t, h, 200, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{ExpectedRevision: &revision, Agents: detail.Agents})))
+	invoke(t, h, 409, "PUT", experimentPath+"/draft", marshalTest(t, DraftInput{ExpectedRevision: &revision, Agents: detail.Agents}))
 	preview := decodeTest[Config](t, invoke(t, h, 200, "GET", experimentPath+"/preview", ""))
 	assertConfig(t, preview, "", 5, 4)
 	if preview.DraftRevision != draft.Revision {
@@ -183,7 +184,7 @@ func TestConcurrentDraftAndRuntimeReads(t *testing.T) {
 	detail := decodeTest[ExperimentDetail](t, invoke(t, writer, 200, "GET", experimentPath, ""))
 	detail.Agents[0].Dependencies[0].Version = 4
 	detail.Agents[1].Dependencies[0].Version = 3
-	input := marshalTest(t, DraftInput{&detail.Revision, detail.Agents})
+	input := marshalTest(t, DraftInput{ExpectedRevision: &detail.Revision, Agents: detail.Agents})
 	statuses := make(chan int, 2)
 	go func() { statuses <- record(writer, "PUT", experimentPath+"/draft", input).Code }()
 	go func() { statuses <- record(reader, "PUT", experimentPath+"/draft", input).Code }()
@@ -249,5 +250,118 @@ func TestUnpublishedAndInvalidRequests(t *testing.T) {
 	h.ServeHTTP(response, request)
 	if response.Code != 403 {
 		t.Fatalf("external host header: status %d", response.Code)
+	}
+}
+
+func TestSchemaCompositionPinsNestedAssetVersions(t *testing.T) {
+	_, h, _ := testAPI(t, true)
+	const path = "/api/v1/experiments/schema-routing"
+	const read = "/api/v1/config?tag=schema-routing"
+	firstRaw := invoke(t, h, 200, "GET", read, "")
+	assertNestedSkills(t, firstRaw, 3, 4)
+	invoke(t, h, 422, "POST", "/api/v1/schemas",
+		`{"key":"invalid-pick","name":"Invalid pick","kind":"experiment","definition":{"type":"object","properties":{"bad":{"x-asset":"experiment"}}}}`)
+	invoke(t, h, 422, "POST", "/api/v1/assets",
+		`{"key":"bad-kind","name":"Invalid asset","schema":{"key":"routing-profile","version":1},"config":{}}`)
+	invoke(t, h, 422, "PUT", path+"/draft", `{"expectedRevision":1,"agents":[]}`)
+	bad := invoke(t, h, 422, "PUT", path+"/draft",
+		`{"expectedRevision":1,"schema":{"key":"routing-profile","version":1},"config":{"primary":{"assetKey":"schema-support-agent","version":1},"candidates":[{"assetKey":"knowledge-search","version":3}],"requestTimeoutMs":100}}`)
+	if !strings.Contains(bad, "/candidates/0 expects agent") {
+		t.Fatalf("validation did not identify the incorrect asset path: %s", bad)
+	}
+	invoke(t, h, 201, "POST", "/api/v1/assets/knowledge-search/versions",
+		`{"baseVersion":4,"schema":{"key":"search-skill","version":1},"config":{"topK":8}}`)
+	invoke(t, h, 422, "POST", "/api/v1/assets/schema-support-agent/versions",
+		`{"baseVersion":1,"schema":{"key":"schema-agent","version":1},"config":{"model":"example","tools":{"skills":[{"assetKey":"schema-dispatch-agent","version":1}]}}}`)
+	invoke(t, h, 201, "POST", "/api/v1/assets/schema-support-agent/versions",
+		`{"baseVersion":1,"schema":{"key":"schema-agent","version":1},"config":{"model":"example","tools":{"skills":[{"assetKey":"knowledge-search","version":5}]}}}`)
+	draft := invoke(t, h, 200, "PUT", path+"/draft",
+		`{"expectedRevision":1,"schema":{"key":"routing-profile","version":1},"config":{"primary":{"assetKey":"schema-support-agent","version":2},"candidates":[{"assetKey":"schema-dispatch-agent","version":1}],"requestTimeoutMs":3000}}`)
+	if !strings.Contains(draft, `"primary":{"assetKey":"schema-support-agent","version":2}`) {
+		t.Fatalf("draft should store only the reference: %s", draft)
+	}
+	assertNestedSkills(t, invoke(t, h, 200, "GET", path+"/preview", ""), 5, 4)
+	if got := invoke(t, h, 200, "GET", read, ""); got != firstRaw {
+		t.Fatal("editing schema-driven assets and the draft modified the published release")
+	}
+	second := invoke(t, h, 201, "POST", path+"/releases",
+		`{"expectedRevision":2,"expectedActiveReleaseId":"schema-routing@1"}`)
+	assertNestedSkills(t, second, 5, 4)
+	if got := invoke(t, h, 200, "GET", read+"&releaseId=schema-routing%401", ""); got != firstRaw {
+		t.Fatal("old schema-driven release changed")
+	}
+	invoke(t, h, 200, "PUT", path+"/active-release",
+		`{"releaseId":"schema-routing@1","expectedActiveReleaseId":"schema-routing@2"}`)
+	if got := invoke(t, h, 200, "GET", read, ""); got != firstRaw {
+		t.Fatal("activating the old schema-driven release did not restore it")
+	}
+}
+
+func assertNestedSkills(t *testing.T, raw string, primary, candidate int64) {
+	t.Helper()
+	type asset struct {
+		Kind   string `json:"kind"`
+		Config struct {
+			Tools struct {
+				Skills []Ref `json:"skills"`
+			} `json:"tools"`
+		} `json:"config"`
+	}
+	value := decodeTest[struct {
+		Schema SchemaRef `json:"schema"`
+		Config struct {
+			Primary    asset   `json:"primary"`
+			Candidates []asset `json:"candidates"`
+			Timeout    int     `json:"requestTimeoutMs"`
+		} `json:"config"`
+	}](t, raw)
+	if value.Schema.Key != "routing-profile" || value.Config.Primary.Kind != "agent" ||
+		len(value.Config.Candidates) != 1 || value.Config.Timeout != 3000 {
+		t.Fatalf("the response did not keep the schema-defined shape: %s", raw)
+	}
+	first := value.Config.Primary.Config.Tools.Skills
+	second := value.Config.Candidates[0].Config.Tools.Skills
+	if len(first) != 1 || len(second) < 1 || first[0].Version != primary || second[0].Version != candidate {
+		t.Fatalf("nested references were not expanded at the pinned versions: %s", raw)
+	}
+}
+
+func TestMigrateLegacyDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, _, _ := strings.Cut(databaseSchema, "CREATE TABLE IF NOT EXISTS schema_drafts")
+	legacy = strings.Replace(legacy, "'agent', 'skill', 'prompt', 'experiment'", "'agent', 'skill', 'prompt'", 1)
+	if _, err := db.Exec(legacy + `
+		INSERT INTO schemas VALUES ('old-schema', 'Old schema', 'agent');
+		INSERT INTO schema_versions VALUES ('old-schema', 1, '{"type":"object"}', '2026-01-01T00:00:00Z');
+		INSERT INTO assets VALUES ('old-agent', 'Old agent', 'agent');
+		INSERT INTO asset_versions VALUES ('old-agent', 1, 'old-schema', 1, '{}', '2026-01-01T00:00:00Z');
+		INSERT INTO experiments VALUES ('old-tag', 'Old experiment', 1);
+		INSERT INTO draft_agents VALUES ('old-tag', 'primary', 'old-agent', 1, 0);
+		INSERT INTO releases VALUES ('old-tag', 1, 1, '2026-01-01T00:00:00Z', '{"tag":"old-tag","releaseId":"old-tag@1","agents":[]}');
+		INSERT INTO active_releases VALUES ('old-tag', 1);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store := openTestStore(t, path)
+	handler := newHandler(store)
+	original := invoke(t, handler, 200, "GET", "/api/v1/config?tag=old-tag", "")
+	if original != "{\"tag\":\"old-tag\",\"releaseId\":\"old-tag@1\",\"agents\":[]}\n" {
+		t.Fatalf("legacy release was changed: %s", original)
+	}
+	invoke(t, handler, 201, "POST", "/api/v1/schemas",
+		`{"key":"new-shape","name":"New shape","kind":"experiment","definition":{"type":"object","required":["custom"],"properties":{"custom":{"x-asset":"agent"}}}}`)
+	invoke(t, handler, 201, "POST", "/api/v1/experiments",
+		`{"tag":"new-tag","name":"New experiment","schema":{"key":"new-shape","version":1}}`)
+	invoke(t, handler, 200, "PUT", "/api/v1/experiments/new-tag/draft",
+		`{"expectedRevision":0,"schema":{"key":"new-shape","version":1},"config":{"custom":{"assetKey":"old-agent","version":1}}}`)
+	var enabled int
+	if err := store.db.QueryRow("PRAGMA foreign_keys").Scan(&enabled); err != nil || enabled != 1 {
+		t.Fatalf("foreign keys disabled after migration, enabled=%d error=%v", enabled, err)
 	}
 }

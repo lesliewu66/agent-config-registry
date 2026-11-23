@@ -49,16 +49,67 @@ func openStore(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	store := &Store{db: db}
-	_, err = inTx(ctx, store, func(tx *sql.Tx) (struct{}, error) {
-		_, err := tx.ExecContext(ctx, databaseSchema)
-		return struct{}{}, err
-	})
-	if err != nil {
+	if err := migrateDatabase(ctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}
-	return store, nil
+	return &Store{db: db}, nil
+}
+
+func migrateDatabase(ctx context.Context, db *sql.DB) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var previous string
+	err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'schemas'").Scan(&previous)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if previous != "" && !strings.Contains(previous, "'experiment'") {
+		// Rebuild this table to widen the old CHECK while retaining referenced keys.
+		if _, err := tx.ExecContext(ctx, `
+			CREATE TABLE schemas_next (
+				key TEXT PRIMARY KEY, name TEXT NOT NULL,
+				kind TEXT NOT NULL CHECK (kind IN ('agent', 'skill', 'prompt', 'experiment'))
+			);
+			INSERT INTO schemas_next SELECT key, name, kind FROM schemas;
+			DROP TABLE schemas;
+			ALTER TABLE schemas_next RENAME TO schemas;`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, databaseSchema); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return err
+	}
+	broken := rows.Next()
+	rowErr := rows.Err()
+	rows.Close()
+	if rowErr != nil {
+		return rowErr
+	}
+	if broken {
+		return errors.New("database migration violated a foreign key")
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, "PRAGMA foreign_keys = ON")
+	return err
 }
 
 func inTx[T any](ctx context.Context, s *Store, run func(*sql.Tx) (T, error)) (T, error) {
@@ -221,8 +272,14 @@ func createAsset(ctx context.Context, tx *sql.Tx, item NewAsset) (Asset, error) 
 	if err != nil {
 		return Asset{}, err
 	}
+	if kind == "experiment" {
+		return Asset{}, unprocessable("experiment schemas can only be used by experiment groups")
+	}
 	config, err := validateConfig(item.Config, definition)
 	if err != nil {
+		return Asset{}, err
+	}
+	if _, err := newResolver(ctx, tx).transform(json.RawMessage(config), definition, false); err != nil {
 		return Asset{}, err
 	}
 	_, err = tx.ExecContext(ctx, "INSERT INTO assets(key, name, kind) VALUES (?, ?, ?)", item.Key, item.Name, kind)
@@ -278,6 +335,9 @@ func addVersion(ctx context.Context, tx *sql.Tx, key string, input VersionInput)
 	}
 	config, err := validateConfig(input.Config, definition)
 	if err != nil {
+		return AssetVersion{}, err
+	}
+	if _, err := newResolver(ctx, tx).transform(json.RawMessage(config), definition, false); err != nil {
 		return AssetVersion{}, err
 	}
 	result := AssetVersion{Version: latest + 1, Schema: input.Schema, Config: json.RawMessage(config), CreatedAt: createdAt()}
@@ -387,7 +447,11 @@ func (s *Store) experimentDetail(ctx context.Context, tag string) (ExperimentDet
 			item.ReleaseID = releaseID(tag, item.ReleaseNumber)
 			return item, err
 		})
-		return ExperimentDetail{Experiment: item, Agents: agents, Releases: releases}, err
+		if err != nil {
+			return ExperimentDetail{}, err
+		}
+		schema, config, err := readSchemaDraft(ctx, tx, tag)
+		return ExperimentDetail{Experiment: item, Agents: agents, Releases: releases, Schema: schema, Config: config}, err
 	})
 }
 
@@ -408,8 +472,9 @@ func resolveRef(ctx context.Context, tx *sql.Tx, ref Ref) (ResolvedAsset, string
 
 func resolveDraft(ctx context.Context, tx *sql.Tx, item Experiment, agents []AgentRef) (Config, error) {
 	result := Config{Tag: item.Tag, Name: item.Name, Agents: []ResolvedAgent{}, ReleaseMeta: ReleaseMeta{DraftRevision: item.Revision}}
+	resolver := newResolver(ctx, tx)
 	for _, agent := range agents {
-		data, kind, err := resolveRef(ctx, tx, agent.Ref)
+		data, kind, err := resolver.asset(agent.Ref)
 		if err != nil {
 			return Config{}, err
 		}
@@ -418,7 +483,7 @@ func resolveDraft(ctx context.Context, tx *sql.Tx, item Experiment, agents []Age
 		}
 		row := ResolvedAgent{ResolvedAsset: data, Skills: []ResolvedAsset{}, Prompts: []ResolvedAsset{}}
 		for _, dep := range agent.Dependencies {
-			data, kind, err := resolveRef(ctx, tx, dep)
+			data, kind, err := resolver.asset(dep)
 			if err != nil {
 				return Config{}, err
 			}
@@ -446,6 +511,11 @@ func saveDraft(ctx context.Context, tx *sql.Tx, tag string, draft Draft) (Draft,
 	}
 	if item.Revision != draft.Revision {
 		return Draft{}, conflict("draft revision is %d; reload before saving", item.Revision)
+	}
+	if schema, _, err := readSchemaDraft(ctx, tx, tag); err != nil {
+		return Draft{}, err
+	} else if schema != nil {
+		return Draft{}, unprocessable("this experiment requires a schema and configuration draft")
 	}
 	if _, err := resolveDraft(ctx, tx, item, draft.Agents); err != nil {
 		return Draft{}, err
@@ -475,7 +545,27 @@ func getPreview(ctx context.Context, tx *sql.Tx, tag string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	agents, err := draftAgents(ctx, tx, tag)
+	return preview(ctx, tx, item)
+}
+
+func preview(ctx context.Context, tx *sql.Tx, item Experiment) (Config, error) {
+	schema, config, err := readSchemaDraft(ctx, tx, item.Tag)
+	if err != nil {
+		return Config{}, err
+	}
+	if schema != nil {
+		if len(config) == 0 {
+			return Config{}, unprocessable("save the schema configuration before previewing")
+		}
+		definition, _, err := schemaDefinition(ctx, tx, *schema)
+		if err != nil {
+			return Config{}, err
+		}
+		resolved, err := newResolver(ctx, tx).transform(config, definition, true)
+		return Config{Tag: item.Tag, Name: item.Name, ReleaseMeta: ReleaseMeta{DraftRevision: item.Revision},
+			Agents: []ResolvedAgent{}, Schema: schema, Config: resolved}, err
+	}
+	agents, err := draftAgents(ctx, tx, item.Tag)
 	if err != nil {
 		return Config{}, err
 	}
@@ -504,15 +594,11 @@ func publish(ctx context.Context, tx *sql.Tx, tag string, revision int64, expect
 	if err := checkActive(item, expectedActive); err != nil {
 		return Config{}, err
 	}
-	agents, err := draftAgents(ctx, tx, tag)
+	result, err := preview(ctx, tx, item)
 	if err != nil {
 		return Config{}, err
 	}
-	result, err := resolveDraft(ctx, tx, item, agents)
-	if err != nil {
-		return Config{}, err
-	}
-	if len(result.Agents) == 0 {
+	if result.Schema == nil && len(result.Agents) == 0 {
 		return Config{}, unprocessable("add at least one agent before publishing")
 	}
 	err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(release), 0) + 1 FROM releases WHERE tag = ?", tag).Scan(&result.ReleaseNumber)

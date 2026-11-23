@@ -53,6 +53,27 @@ curl -fsS --get "$api/config" --data-urlencode 'tag=routing-trial' --data-urlenc
 
 Each published response contains a `releaseId`, an ordered `agents` array and each Agent’s `skills` and `prompts`. All resolved assets carry their business JSON under `config` and their immutable `schema` and asset versions. Log the `releaseId` if you need to replay an experiment later.
 
+## Schema-driven experiments and asset fields
+
+Register a Schema with `kind: "experiment"` and use `x-asset` in its `properties` or `items`. The same annotation works inside the Schema for an Agent, Skill, or Prompt asset.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "primary": { "x-asset": "agent" },
+    "fallbacks": { "type": "array", "items": { "x-asset": ["agent", "skill"] } }
+  },
+  "required": ["primary"]
+}
+```
+
+Send `schema: {"key":"routing-profile","version":1}` when creating an experiment. Use `expectedRevision`, `schema`, and `config` when saving its draft. For example, `config.primary` can be `{"assetKey":"schema-support-agent","version":1}`. The server validates the version and kind of that reference and stores it with the draft.
+
+Preview and publish use the same endpoints as the original experiment format. In published responses, `config` contains the named fields and expanded asset objects. The underlying asset JSON is nested under each resolved asset's own `config`.
+
+See the [Schema composition spec](../specs/002-schema-composition/spec.md) and [complete sample](../examples/schema-routing.json).
+
 ## Versioning and conflicts
 
 Schemas can use local references, such as fragments under `$defs`. Bundle any external schema definitions into the submitted document.
@@ -74,4 +95,4 @@ The database is `data/config.db` by default. Choose its path with `-db`. SQLite 
 sqlite3 data/config.db '.backup config.backup.db'
 ```
 
-The listener accepts loopback addresses. v0.1 trusts processes with access to that local interface. A multi-user deployment requires authentication. Keep it local and pass secret references instead of credentials in configuration.
+The listener accepts loopback addresses. The server trusts processes with access to that local interface. A multi-user deployment requires authentication. Keep it local and pass secret references instead of credentials in configuration.

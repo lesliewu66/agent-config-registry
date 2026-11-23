@@ -20,8 +20,9 @@ var webFiles embed.FS
 const maxRequestBytes = 1 << 20
 
 type newExperiment struct {
-	Tag  string `json:"tag"`
-	Name string `json:"name"`
+	Tag    string     `json:"tag"`
+	Name   string     `json:"name"`
+	Schema *SchemaRef `json:"schema,omitempty"`
 }
 
 type activeRelease struct {
@@ -43,9 +44,12 @@ func newHandler(store *Store) http.Handler {
 	static := http.FileServerFS(web)
 	mux.Handle("GET /{$}", static)
 	mux.Handle("GET /app.js", static)
+	mux.Handle("GET /i18n.js", static)
+	mux.Handle("GET /composition.js", static)
 	mux.Handle("GET /styles.css", static)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
@@ -172,7 +176,13 @@ func registerExperiments(mux *http.ServeMux, store *Store) {
 		return store.experiments(r.Context())
 	}))
 	mux.HandleFunc("POST /api/v1/experiments", write(http.StatusCreated, func(r *http.Request, input newExperiment) (Experiment, error) {
-		return createExperiment(r.Context(), store.db, input.Tag, input.Name)
+		return inTx(r.Context(), store, func(tx *sql.Tx) (Experiment, error) {
+			item, err := createExperiment(r.Context(), tx, input.Tag, input.Name)
+			if err == nil && input.Schema != nil {
+				err = attachSchemaDraft(r.Context(), tx, input.Tag, *input.Schema)
+			}
+			return item, err
+		})
 	}))
 	mux.HandleFunc("GET /api/v1/experiments/{tag}", get(func(r *http.Request) (ExperimentDetail, error) {
 		return store.experimentDetail(r.Context(), r.PathValue("tag"))
@@ -182,6 +192,12 @@ func registerExperiments(mux *http.ServeMux, store *Store) {
 			return Draft{}, invalid("expectedRevision must be a nonnegative integer")
 		}
 		return inTx(r.Context(), store, func(tx *sql.Tx) (Draft, error) {
+			if input.Schema != nil || len(input.Config) != 0 {
+				if input.Schema == nil || input.Agents != nil {
+					return Draft{}, invalid("provide schema and config together, without agents")
+				}
+				return saveSchemaDraft(r.Context(), tx, r.PathValue("tag"), *input.ExpectedRevision, *input.Schema, input.Config)
+			}
 			return saveDraft(r.Context(), tx, r.PathValue("tag"), Draft{Revision: *input.ExpectedRevision, Agents: input.Agents})
 		})
 	}))

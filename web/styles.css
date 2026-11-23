@@ -43,6 +43,7 @@ code, .mono { overflow-wrap: anywhere; }
 .nav button { color: var(--muted); background: none; border: 0; padding: 0 11px; font-weight: 600; border-bottom: 2px solid transparent; }
 .nav button[aria-current="page"] { color: var(--green); border-bottom-color: var(--green); }
 .nav button:hover { color: var(--green); }
+.language-switch { margin-inline-start: auto; white-space: nowrap; }
 .workspace { max-width: 1328px; margin: 0 auto; padding: 34px 32px 70px; }
 .shell { display: grid; grid-template-columns: 235px minmax(0, 1fr); gap: 28px; align-items: start; }
 .sidebar { min-width: 0; }
@@ -144,3 +145,11 @@ textarea { min-height: 140px; resize: vertical; font-family: "SFMono-Regular", C
   .catalog-row > .tag { display: none; }
   .form-columns { grid-template-columns: 1fr; }
 }
+
+.schema-fieldset { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px 12px; }
+.schema-fieldset legend { font-size: .86rem; font-weight: 650; padding: 0 5px; }
+.schema-fieldset small { padding-top: 4px; display: block; }
+.schema-add { margin-top: 8px; }
+.schema-array-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.schema-meta { min-width: 0; font-size: .83rem; color: var(--muted); }
+.api-path { display: block; background: var(--bg); padding: 7px; border-radius: 6px; margin: 7px 0; font-size: .79rem; }
