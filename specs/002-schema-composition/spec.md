@@ -33,6 +33,10 @@ GET /api/v1/config?tag=schema-routing&releaseId=schema-routing%401
 
 若有对照组和实验组，可分别发布到例如 `routing-control` 和 `routing-treatment`，由调用方分流后选择相应的 tag。资产版本可以被多个实验复用。旧版 Agent 固定绑定的实验仍按原格式返回 `agents` 列表。
 
+## 多级资产引用
+
+资产自身的 Schema 可以继续声明 `x-asset` 字段。例如，组合引用 Agent，Agent 的 `skills` 数组引用 Skill，Skill 的 `steps` 数组再引用子 Skill 或 Prompt。每段引用都保存具体版本。发布时从组合向下递归展开，整个依赖链一起固定在这次发布里。同一资产的不同版本也可以出现在同一份发布的不同位置。
+
 ## 业务字段和分支
 
 组合 Schema 同时描述业务值和资产引用。[有图／无图样例](../../examples/image-routing.json) 包含业务标识 `businessKey`、`branches.withImage` 和 `branches.withoutImage`。每个分支都有业务自定义的 `when.hasImage`、Agent 引用和独立的超时参数。

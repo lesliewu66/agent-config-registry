@@ -429,3 +429,77 @@ func TestCompositionPublishesOrdinaryBusinessFieldsWithoutAssets(t *testing.T) {
 		t.Fatalf("custom fields did not survive publication: %s", published.Config)
 	}
 }
+
+func TestCompositionPinsMultipleLevelsOfSkillReferences(t *testing.T) {
+	_, h, _ := testAPI(t, false)
+	for _, schema := range []string{
+		`{"key":"entry-schema","name":"Entry","kind":"experiment","definition":{"type":"object","properties":{"entry":{"x-asset":"agent"}}}}`,
+		`{"key":"agent-schema","name":"Agent","kind":"agent","definition":{"type":"object","properties":{"skills":{"type":"array","items":{"x-asset":"skill"}}}}}`,
+		`{"key":"skill-schema","name":"Skill","kind":"skill","definition":{"type":"object","properties":{"steps":{"type":"array","items":{"x-asset":["skill","prompt"]}}}}}`,
+		`{"key":"prompt-schema","name":"Prompt","kind":"prompt","definition":{"type":"object","properties":{"text":{"type":"string"}}}}`,
+	} {
+		invoke(t, h, 201, "POST", "/api/v1/schemas", schema)
+	}
+	for _, asset := range []string{
+		`{"key":"rewrite-prompt","name":"Rewrite prompt","schema":{"key":"prompt-schema","version":1},"config":{"text":"Version one"}}`,
+		`{"key":"normalize-skill","name":"Normalize skill","schema":{"key":"skill-schema","version":1},"config":{"steps":[{"assetKey":"rewrite-prompt","version":1}]}}`,
+		`{"key":"lookup-skill","name":"Lookup skill","schema":{"key":"skill-schema","version":1},"config":{"steps":[{"assetKey":"normalize-skill","version":1}]}}`,
+	} {
+		invoke(t, h, 201, "POST", "/api/v1/assets", asset)
+	}
+	invoke(t, h, 201, "POST", "/api/v1/assets/rewrite-prompt/versions",
+		`{"baseVersion":1,"schema":{"key":"prompt-schema","version":1},"config":{"text":"Version two"}}`)
+	invoke(t, h, 201, "POST", "/api/v1/assets/normalize-skill/versions",
+		`{"baseVersion":1,"schema":{"key":"skill-schema","version":1},"config":{"steps":[{"assetKey":"rewrite-prompt","version":2}]}}`)
+	invoke(t, h, 201, "POST", "/api/v1/assets/lookup-skill/versions",
+		`{"baseVersion":1,"schema":{"key":"skill-schema","version":1},"config":{"steps":[{"assetKey":"normalize-skill","version":2}]}}`)
+	invoke(t, h, 201, "POST", "/api/v1/assets",
+		`{"key":"search-agent","name":"Search Agent","schema":{"key":"agent-schema","version":1},"config":{"skills":[{"assetKey":"lookup-skill","version":1},{"assetKey":"lookup-skill","version":2}]}}`)
+	invoke(t, h, 201, "POST", "/api/v1/experiments",
+		`{"tag":"skill-chain","name":"Skill chain","schema":{"key":"entry-schema","version":1}}`)
+
+	const path = "/api/v1/experiments/skill-chain"
+	invoke(t, h, 200, "PUT", path+"/draft",
+		`{"expectedRevision":0,"schema":{"key":"entry-schema","version":1},"config":{"entry":{"assetKey":"search-agent","version":1}}}`)
+	invoke(t, h, 201, "POST", path+"/releases", `{"expectedRevision":1,"expectedActiveReleaseId":null}`)
+
+	const configPath = "/api/v1/config?tag=skill-chain"
+	before := invoke(t, h, 200, "GET", configPath, "")
+	type publishedNode struct {
+		AssetKey string `json:"assetKey"`
+		Version  int64  `json:"version"`
+		Config   struct {
+			Skills []publishedNode `json:"skills"`
+			Steps  []publishedNode `json:"steps"`
+			Text   string          `json:"text"`
+		} `json:"config"`
+	}
+	release := decodeTest[Config](t, before)
+	bundle := decodeTest[struct {
+		Entry publishedNode `json:"entry"`
+	}](t, string(release.Config))
+	skills := bundle.Entry.Config.Skills
+	if release.ReleaseID != "skill-chain@1" || bundle.Entry.AssetKey != "search-agent" || len(skills) != 2 {
+		t.Fatalf("unexpected root or number of skills: %s", before)
+	}
+	for index, skill := range skills {
+		wantVersion := int64(index + 1)
+		if skill.AssetKey != "lookup-skill" || skill.Version != wantVersion || len(skill.Config.Steps) != 1 {
+			t.Fatalf("unexpected skill at branch %d: %+v", index, skill)
+		}
+		nested := skill.Config.Steps[0]
+		if nested.AssetKey != "normalize-skill" || nested.Version != wantVersion || len(nested.Config.Steps) != 1 {
+			t.Fatalf("unexpected nested skill at branch %d: %+v", index, nested)
+		}
+		prompt := nested.Config.Steps[0]
+		wantText := []string{"Version one", "Version two"}[index]
+		if prompt.AssetKey != "rewrite-prompt" || prompt.Version != wantVersion || prompt.Config.Text != wantText {
+			t.Fatalf("unexpected leaf at branch %d: %+v", index, prompt)
+		}
+	}
+	invoke(t, h, 201, "POST", "/api/v1/assets/rewrite-prompt/versions",
+		`{"baseVersion":2,"schema":{"key":"prompt-schema","version":1},"config":{"text":"Version three"}}`)
+	if after := invoke(t, h, 200, "GET", configPath, ""); after != before {
+		t.Fatal("creating a new leaf version changed the existing published asset chain")
+	}
+}
