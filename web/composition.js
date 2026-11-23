@@ -226,3 +226,89 @@ function compositionOutline(data) {
     list(items) ?? node("p", { class: "subtle" }, t("No fields to preview.")),
     truncated ? node("p", { class: "subtle" }, t("Open JSON to see all fields.")) : null);
 }
+
+function compositionSchemaInspector(draft, definition, onVersionChange) {
+  const schema = state.schemas.find((item) => item.key === draft.schema.key);
+  const body = node("div", { class: "schema-inspector-content" });
+  const versions = select(draft.versions.map((item) => [item.version, "v" + item.version]), draft.schema.version);
+  const fields = button(t("Schema fields"), () => show("fields"), "small");
+  const raw = button("JSON", () => show("json"), "small", { "aria-label": t("Schema JSON") });
+
+  function show(mode) {
+    draft.inspectorMode = mode;
+    fields.setAttribute("aria-pressed", String(mode === "fields"));
+    raw.setAttribute("aria-pressed", String(mode === "json"));
+    const schema = definition();
+    body.replaceChildren(mode === "fields"
+      ? schemaFieldOutline(schema)
+      : node("pre", { class: "json-output schema-definition", tabindex: "0", "aria-label": t("Schema JSON") },
+        JSON.stringify(schema, null, 2)));
+  }
+  versions.addEventListener("change", () => {
+    onVersionChange(Number(versions.value));
+    show(draft.inspectorMode);
+  });
+
+  show(draft.inspectorMode);
+  return node("section", { class: "panel schema-inspector", id: "composition-schema", tabindex: "-1", "aria-labelledby": "composition-schema-title" },
+    node("div", { class: "panel-header" }, node("h2", { id: "composition-schema-title" }, t("Composition schema reference"))),
+    node("div", { class: "panel-body fields" },
+      node("div", { class: "schema-inspector-meta" },
+        node("div", { class: "schema-meta" }, node("strong", {}, schema ? displayName(schema) : draft.schema.key),
+          node("div", {}, node("code", {}, draft.schema.key))),
+        field(t("Schema version"), versions)),
+      node("div", { class: "filters preview-modes" }, fields, raw),
+      body));
+}
+
+const schemaTypeLabels = {
+  string: "String type", boolean: "Boolean type", integer: "Integer type", number: "Number type",
+  object: "Object type", array: "Array type", null: "Null type",
+};
+
+function schemaFieldOutline(definition) {
+  let remaining = 160;
+  let truncated = false;
+  const root = definition ?? {};
+
+  function fields(shape, depth, visited) {
+    if (visited.has(shape) || depth >= 10 || remaining <= 0) {
+      truncated = true;
+      return [];
+    }
+    const next = new Set(visited).add(shape);
+    const properties = Object.entries(shape.properties ?? {});
+    const values = properties.map(([key, child]) => [key, child, shape.required?.includes(key)]);
+    if (shape.items && typeof shape.items === "object") {
+      values.push(["[]", shape.items, false]);
+    }
+    const items = [];
+    for (const [key, child, required] of values) {
+      if (remaining-- <= 0) {
+        truncated = true;
+        break;
+      }
+      const resolved = schemaShape(root, child);
+      const caption = key === "[]" ? t("Array item") : schemaLabel(child, schemaLabel(resolved, key));
+      const types = Array.isArray(resolved.type) ? resolved.type : [resolved.type];
+      const declaredType = types.filter((type) => Object.hasOwn(schemaTypeLabels, type)).map((type) => t(schemaTypeLabels[type])).join(" / ");
+      const inferredType = resolved.properties ? "Object type" : (resolved.items ? "Array type" : (resolved.enum ? "Enum type" : "Any type"));
+      const chosenKinds = Array.isArray(resolved["x-asset"]) ? resolved["x-asset"] : [resolved["x-asset"]];
+      const typeLabel = resolved["x-asset"]
+        ? t("Asset reference") + " · " + chosenKinds.map((kind) => labels[kind]).join(" / ")
+        : declaredType || t(inferredType);
+      const children = fields(resolved, depth + 1, next);
+      items.push(node("li", { class: "schema-inspector-item" },
+        node("div", { class: "schema-inspector-field" },
+          node("strong", {}, caption), caption !== key ? node("code", {}, key) : null),
+        node("div", { class: "schema-inspector-tags" }, tagLabel(typeLabel), required ? tagLabel(t("Required"), "agent") : null),
+        children.length ? node("ul", {}, children) : null));
+    }
+    return items;
+  }
+
+  const items = fields(schemaShape(root, root), 0, new Set());
+  return node("div", { class: "schema-inspector-tree", tabindex: "0" },
+    items.length ? node("ul", {}, items) : node("p", { class: "subtle" }, t("No named fields declared.")),
+    truncated ? node("p", { class: "subtle" }, t("Use Schema JSON to inspect the complete definition.")) : null);
+}

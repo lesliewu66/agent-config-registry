@@ -18,6 +18,7 @@ const state = {
   loading: true,
   loadError: null,
   schemaDraft: null,
+  schemaScope: "asset",
   filters: { assets: "all", schemas: "all" },
 };
 
@@ -203,7 +204,7 @@ async function loadExperiment(tag) {
   const result = await api(route(tag));
   const versions = result.schema ? await api(versionRoute("schemas", result.schema.key)) : [];
   state.schemaDraft = result.schema
-    ? { schema: { ...result.schema }, versions, source: JSON.stringify(result.config ?? {}, null, 2), rawMode: false }
+    ? { schema: { ...result.schema }, versions, source: JSON.stringify(result.config ?? {}, null, 2), rawMode: false, inspectorMode: "fields" }
     : null;
   state.selected = result;
   state.agents = structuredClone(result.agents);
@@ -302,8 +303,10 @@ function experimentView() {
       saveButton, previewButton));
 
   if (state.schemaDraft) {
+    const { editor, inspector } = schemaDraftPanel(editSchemaDraft);
     return node("div", { class: "shell" }, sidebar, node("div", {}, title,
-      node("div", { class: "detail-grid" }, schemaDraftPanel(editSchemaDraft), releasePanel(experiment))));
+      node("div", { class: "detail-grid with-schema" }, editor,
+        node("div", { class: "composition-sidebar" }, inspector, releasePanel(experiment)))));
   }
 
   const tree = node("section", { class: "panel", "aria-labelledby": "tree-title" },
@@ -323,7 +326,7 @@ function experimentView() {
 
 function schemaDraftPanel(edited) {
   const draft = state.schemaDraft;
-  const version = select(draft.versions.map((item) => [item.version, "v" + item.version]), draft.schema.version);
+  const definition = () => draft.versions.find((item) => item.version === draft.schema.version)?.definition;
   const panel = node("div", { class: "fields" });
   const editButton = button("", () => {
     draft.rawMode = !draft.rawMode;
@@ -338,15 +341,15 @@ function schemaDraftPanel(edited) {
   }
 
   function draw() {
-    const definition = draft.versions.find((item) => item.version === draft.schema.version)?.definition;
-    const supported = definition && schemaShape(definition, definition).properties;
+    const schema = definition();
+    const supported = schema && schemaShape(schema, schema).properties;
     if (!supported) draft.rawMode = true;
     editButton.textContent = draft.rawMode ? t("Use schema form") : t("Edit raw JSON");
     editButton.disabled = !supported;
     if (!draft.rawMode) {
       try {
         const config = objectFromJSON(draft.source);
-        panel.replaceChildren(...renderStructuredFields(definition, config, (value) => {
+        panel.replaceChildren(...renderStructuredFields(schema, config, (value) => {
           draft.source = JSON.stringify(value, null, 2);
           edited();
         }));
@@ -360,20 +363,26 @@ function schemaDraftPanel(edited) {
     panel.replaceChildren(rawEditor());
   }
 
-  version.addEventListener("change", () => {
-    draft.schema.version = Number(version.value);
+  const inspector = compositionSchemaInspector(draft, definition, (version) => {
+    draft.schema.version = version;
     edited();
     draw();
   });
   draw();
-  return node("section", { class: "panel", "aria-labelledby": "schema-config-title" },
-    node("div", { class: "panel-header" }, node("h2", { id: "schema-config-title" }, t("Composition fields")), editButton),
-    node("div", { class: "panel-body fields" },
-      node("div", { class: "composition-meta" }, node("div", { class: "schema-meta" },
-        node("div", {}, t("Composition schema")), node("code", {}, draft.schema.key)),
-        field(t("Schema version"), version)),
-      panel));
+  const editor = node("section", { class: "panel", "aria-labelledby": "schema-config-title" },
+    node("div", { class: "panel-header" }, node("h2", { id: "schema-config-title" }, t("Composition fields")),
+      node("div", { class: "row-actions" }, node("a", {
+        href: "#composition-schema", class: "button small schema-shortcut",
+        on: { click: (event) => {
+          event.preventDefault();
+          inspector.scrollIntoView({ block: "start" });
+          inspector.focus({ preventScroll: true });
+        } },
+      }, t("View schema")), editButton)),
+    node("div", { class: "panel-body fields" }, panel));
+  return { editor, inspector };
 }
+
 
 function agentCard(agent, index) {
   const asset = state.assets.find((item) => item.key === agent.assetKey);
@@ -654,18 +663,33 @@ function activateRelease(experiment, releaseId) {
 
 function catalogView(collection) {
   const isSchema = collection === "schemas";
+  const isComposition = isSchema && state.schemaScope === "experiment";
   const title = isSchema ? t("Schemas") : t("Assets");
   const filter = state.filters[collection];
-  const items = state[collection].filter((item) => filter === "all" || item.kind === filter);
-  const create = () => isSchema ? schemaDialog() : assetDialog();
-  const filterButtons = (isSchema ? ["all", ...Object.keys(labels)] : ["all", "agent", "skill", "prompt"]).map((kind) => button(
-    kind === "all" ? t("All") : t(labels[kind]), () => { state.filters[collection] = kind; render(); },
+  const items = state[collection].filter((item) => {
+    if (isComposition) return item.kind === "experiment";
+    return item.kind !== "experiment" && (filter === "all" || item.kind === filter);
+  });
+  const create = () => {
+    if (!isSchema) return assetDialog();
+    return schemaDialog(undefined, undefined, { kind: isComposition ? "experiment" : undefined });
+  };
+  const createLabel = !isSchema ? t("Import asset") : t(isComposition ? "New composition schema" : "New asset schema");
+  const filterButtons = ["all", "agent", "skill", "prompt"].map((kind) => button(
+    kind === "all" ? t("All") : labels[kind], () => { state.filters[collection] = kind; render(); },
     "small " + (filter === kind ? "selected" : ""), { "aria-pressed": String(filter === kind) }));
+  const categories = isSchema ? node("nav", { class: "filters schema-categories", "aria-label": t("Schema categories") },
+    [["asset", "Asset schemas"], ["experiment", "Composition schemas"]].map(([scope, label]) => {
+      const selected = state.schemaScope === scope;
+      return button(t(label), () => { state.schemaScope = scope; render(); }, "small " + (selected ? "selected" : ""),
+        { "aria-pressed": String(selected) });
+    })) : null;
+
   return node("section", { class: "catalog" },
-    node("div", { class: "section-title" }, node("h1", {}, title),
-      button(isSchema ? t("New schema") : t("Import asset"), create, "primary")),
+    node("div", { class: "section-title" }, node("h1", {}, title), button(createLabel, create, "primary")),
+    categories,
     node("section", { class: "panel" },
-      node("div", { class: "panel-header filters", "aria-label": t("Filter by asset type") }, filterButtons),
+      isComposition ? null : node("div", { class: "panel-header filters", "aria-label": t("Filter by asset type") }, filterButtons),
       items.length ? node("div", { class: "catalog-list" }, items.map((item) =>
         node("div", { class: "catalog-row" },
           node("div", {}, node("h3", {}, displayName(item)),
@@ -673,8 +697,10 @@ function catalogView(collection) {
           tagLabel(t(labels[item.kind]), item.kind),
           button(t("Versions · v{version}", { version: item.latestVersion }), () => versionsDialog(collection, item), "small",
             { "aria-label": t("Versions for {name}", { name: displayName(item) }) }))))
-        : node("div", { class: "panel-body" }, empty(isSchema ? t("No schemas in this view") : t("No assets in this view"),
-          isSchema ? t("Register a JSON Schema to validate asset versions.") : t("Import JSON using a registered Schema version."),
+        : node("div", { class: "panel-body" }, empty(
+          t(isComposition ? "No composition schemas yet" : (isSchema ? "No schemas in this view" : "No assets in this view")),
+          t(isComposition ? "Register a schema to define the fields in a configuration group."
+            : (isSchema ? "Register a JSON Schema to validate asset versions." : "Import JSON using a registered Schema version.")),
           null))));
 }
 
@@ -717,19 +743,21 @@ function jsonPayload(fields, property, source) {
 function schemaDialog(item, source, options = {}) {
   const key = keyInput(item?.key ?? "");
   const name = input({ required: true, maxlength: 80 });
-  const kind = select(Object.entries(labels).map(([id, name]) => [id, t(name)]), options.kind);
+  const isComposition = item?.kind === "experiment" || options.kind === "experiment";
+  const kind = select(["agent", "skill", "prompt"].map((id) => [id, labels[id]]));
   const root = { "$schema": "https://json-schema.org/draft/2020-12/schema", type: "object",
-    ...(options.kind === "experiment"
+    ...(isComposition
       ? { properties: { primary: { "x-asset": "agent" } }, required: ["primary"] }
       : { properties: { message: { type: "string" } }, required: ["message"] }) };
   const editor = jsonEditor("JSON Schema", source?.definition ?? root);
   const fields = item ? [editor.container] : [field(t("Name"), name),
-    node("div", { class: "form-columns" }, field(t("Schema key"), key), field(t("Asset type"), kind)),
+    node("div", { class: "form-columns" }, field(t("Schema key"), key),
+      isComposition ? null : field(t("Asset type"), kind)),
     editor.container];
   fields.push(node("p", { class: "subtle" }, t("Use x-asset in a field or array item to choose an existing asset version.")));
-  formDialog(item ? t("New schema version") : t("New schema"), fields, item ? t("Create version") : t("Create schema"), async () => {
+  formDialog(item ? t("New schema version") : t(isComposition ? "New composition schema" : "New asset schema"), fields, item ? t("Create version") : t("Create schema"), async () => {
     const path = item ? versionRoute("schemas", item.key) : "/schemas";
-    const meta = item ? { baseVersion: item.latestVersion } : { key: key.value, name: name.value.trim(), kind: kind.value };
+    const meta = item ? { baseVersion: item.latestVersion } : { key: key.value, name: name.value.trim(), kind: isComposition ? "experiment" : kind.value };
     await api(path, { method: "POST", raw: jsonPayload(meta, "definition", editor.area.value) });
     await refreshLists();
     dialog.close();
@@ -744,8 +772,9 @@ async function assetDialog(item, source) {
   if (!eligible.length) {
     modal(t("Register a schema first"), node("div", { class: "form" },
       node("p", {}, t("A Schema version validates the JSON you import.")),
-      node("div", { class: "form-actions" }, button(t("New schema"), () => {
+      node("div", { class: "form-actions" }, button(t("New asset schema"), () => {
         state.view = "schemas";
+        state.schemaScope = "asset";
         render();
         schemaDialog();
       }, "primary"))));

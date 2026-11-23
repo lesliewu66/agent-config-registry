@@ -154,7 +154,6 @@ textarea { min-height: 140px; resize: vertical; font-family: "SFMono-Regular", C
 .schema-meta { min-width: 0; font-size: .83rem; color: var(--muted); }
 .api-path { display: block; background: var(--bg); padding: 7px; border-radius: 6px; margin: 7px 0; font-size: .79rem; }
 
-.composition-meta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, 150px); gap: 12px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
 .asset-picker-columns { grid-template-columns: minmax(0, 3fr) minmax(80px, 1fr); }
 .schema-array-row { border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 .schema-array-row:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -172,3 +171,30 @@ textarea { min-height: 140px; resize: vertical; font-family: "SFMono-Regular", C
 .outline-asset .asset-title { margin: 3px 0 5px; }
 .outline-value { display: flex; gap: 8px; flex-wrap: wrap; }
 .outline-value code { font-size: .82rem; }
+
+.detail-grid.with-schema { grid-template-columns: minmax(0, 1fr) minmax(257px, 310px); }
+.composition-sidebar { min-width: 0; display: grid; gap: 14px; }
+.schema-shortcut { display: none; }
+.schema-inspector-meta { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.schema-inspector-meta strong { display: block; font-size: .89rem; color: var(--ink); overflow-wrap: anywhere; }
+.schema-inspector-meta .field { min-width: 66px; }
+.schema-inspector-meta .field > label { font-size: .77rem; }
+.schema-inspector-content { min-width: 0; }
+.schema-inspector-tree, .schema-definition { max-height: 268px; overflow: auto; }
+.schema-definition { margin: 0; font-size: .76rem; }
+.schema-inspector-tree ul { list-style: none; margin: 0; padding: 0; }
+.schema-inspector-item { padding: 5px 0; }
+.schema-inspector-item > ul { padding-inline-start: 8px; border-inline-start: 1px solid var(--line); margin-top: 4px; }
+.schema-inspector-field, .schema-inspector-tags { display: flex; align-items: baseline; flex-wrap: wrap; min-width: 0; gap: 4px 6px; }
+.schema-inspector-field { font-size: .81rem; overflow-wrap: anywhere; }
+.schema-inspector-field code { font-size: .73rem; color: var(--muted); }
+.schema-inspector-tags { margin-top: 3px; }
+.schema-inspector-tags .tag { font-size: .70rem; min-height: 18px; }
+.schema-categories { margin-bottom: 14px; }
+@media (max-width: 1080px) {
+  .detail-grid.with-schema { grid-template-columns: minmax(0, 1fr); }
+  .schema-shortcut { display: inline-flex; }
+}
+@media (min-width: 1081px) {
+  .composition-sidebar { position: sticky; top: 16px; }
+}
