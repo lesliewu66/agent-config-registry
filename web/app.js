@@ -5,7 +5,7 @@ const dialog = document.querySelector("#dialog");
 const dialogContent = document.querySelector("#dialog-content");
 const notice = document.querySelector("#notice");
 const languageButton = document.querySelector("#switch-language");
-const viewLabels = { experiments: "Experiments", assets: "Assets", schemas: "Schemas" };
+const viewLabels = { experiments: "Compositions", assets: "Assets", schemas: "Schemas" };
 const state = {
   view: "experiments",
   experiments: [],
@@ -258,8 +258,8 @@ function tagLabel(text, kind = "") {
 
 function experimentView() {
   const sidebar = node("aside", { class: "sidebar" },
-    node("div", { class: "sidebar-heading" }, node("h2", {}, t("Experiments")),
-      button(t("New"), newExperimentDialog, "small", { "aria-label": t("New experiment") })),
+    node("div", { class: "sidebar-heading" }, node("h2", {}, t("Configuration groups")),
+      state.experiments.length ? button(t("New"), newExperimentDialog, "small", { "aria-label": t("New composition") }) : null),
     node("div", { class: "experiment-list" }, state.experiments.map((item) =>
       node("button", {
         type: "button", class: "experiment-link",
@@ -268,9 +268,9 @@ function experimentView() {
       }, node("strong", {}, displayName(item)), node("code", {}, item.tag)))));
   const experiment = state.selected;
   if (!experiment) {
-    return node("div", { class: "shell" }, sidebar, empty(t("Create your first experiment"),
-      t("Give a configuration group a tag, then add the Agent versions it should serve."),
-      button(t("New experiment"), newExperimentDialog, "primary")));
+    return node("div", { class: "shell" }, sidebar, empty(t("Compose your first configuration"),
+      t("Choose a schema, fill its fields with asset versions and publish the group."),
+      button(t("New composition"), newExperimentDialog, "primary")));
   }
 
   const unsaved = tagLabel(t("Unsaved changes"), "draft");
@@ -307,7 +307,7 @@ function experimentView() {
   }
 
   const tree = node("section", { class: "panel", "aria-labelledby": "tree-title" },
-    node("div", { class: "panel-header" }, node("h2", { id: "tree-title" }, t("Configuration tree")),
+    node("div", { class: "panel-header" }, node("h2", { id: "tree-title" }, t("Legacy Agent bindings")),
       button(t("Add agent"), () => bindingDialog(), "", { disabled: !state.assets.some((a) => a.kind === "agent") })),
     node("div", { class: "panel-body tree" },
       state.agents.length
@@ -367,12 +367,11 @@ function schemaDraftPanel(edited) {
   });
   draw();
   return node("section", { class: "panel", "aria-labelledby": "schema-config-title" },
-    node("div", { class: "panel-header" }, node("h2", { id: "schema-config-title" }, t("Schema-based configuration")), editButton),
+    node("div", { class: "panel-header" }, node("h2", { id: "schema-config-title" }, t("Composition fields")), editButton),
     node("div", { class: "panel-body fields" },
-      node("div", { class: "form-columns" }, node("div", { class: "schema-meta" },
-        node("div", {}, t("Experiment schema")), node("code", {}, draft.schema.key)),
+      node("div", { class: "composition-meta" }, node("div", { class: "schema-meta" },
+        node("div", {}, t("Composition schema")), node("code", {}, draft.schema.key)),
         field(t("Schema version"), version)),
-      node("p", { class: "subtle" }, t("Fill the fields defined by this schema. Asset fields use explicit versions.")),
       panel));
 }
 
@@ -413,16 +412,16 @@ function releasePanel(experiment) {
   const body = current
     ? [node("code", { class: "release-id" }, current.releaseId),
       node("p", { class: "release-meta" }, tagLabel(t("Active"), "live"), node("span", { class: "subtle" }, dateLabel(current.publishedAt))),
-      button(t("View active JSON"), () => viewRelease(experiment.tag, current.releaseId), "small"),
-      node("div", { class: "release-history" }, node("h3", {}, t("Runtime lookup by tag")),
+      button(t("View active release"), () => viewRelease(experiment.tag, current.releaseId), "small"),
+      node("div", { class: "release-history" }, node("h3", {}, t("Lookup by tag")),
         node("a", { class: "api-path mono", href: "/api/v1" + configPath(experiment.tag), target: "_blank", rel: "noopener",
           "aria-label": t("Open active API response") }, "GET " + "/api/v1" + configPath(experiment.tag)))]
     : [node("p", { class: "panel-note" }, t("This tag is served after the first release."))];
   return node("aside", { class: "panel", "aria-labelledby": "release-title" },
     node("div", { class: "panel-header" }, node("h2", { id: "release-title" }, t("Current release"))),
     node("div", { class: "panel-body" }, body,
-      experiment.releases.length ? node("div", { class: "release-history" },
-        node("h3", {}, t("History")),
+      experiment.releases.length ? node("details", { class: "release-history release-details" },
+        node("summary", {}, t("Publication history ({count})", { count: experiment.releases.length })),
         experiment.releases.map((release) => node("div", { class: "release" },
           node("code", {}, release.releaseId),
           node("div", { class: "row-actions" },
@@ -437,37 +436,52 @@ function dateLabel(timestamp) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp));
 }
 
-function newExperimentDialog() {
-  const name = input({ required: true, maxlength: 80, placeholder: locale === "zh-CN" ? "客服路由实验" : "Support routing" });
-  const tag = keyInput();
+function newExperimentDialog(initial = {}) {
+  const name = input({ required: true, maxlength: 80, value: initial.name ?? "", placeholder: locale === "zh-CN" ? "客服路由配置" : "Support routing" });
+  const tag = keyInput(initial.tag ?? "");
   const schemas = state.schemas.filter((item) => item.kind === "experiment");
-  const choices = schemas.map((item) => [item.key, displayName(item)]);
-  choices.push(["", t("Agent bindings")]);
-  const schema = select(choices);
+  const schema = select(schemas.map((item) => [item.key, displayName(item)]));
   const version = select([]);
-  const versionField = field(t("Schema version"), version);
-  function showVersions() {
+  const legacy = input({ type: "checkbox" });
+  const schemaFields = node("div", { class: "form-columns" },
+    field(t("Composition schema"), schema), field(t("Schema version"), version));
+  const noSchema = node("div", { class: "fields" },
+    node("p", { class: "subtle" }, t("Create a composition schema before creating this group.")),
+    node("div", {}, button(t("Create composition schema"), () => schemaDialog(undefined, undefined, {
+      kind: "experiment",
+      onSaved: () => newExperimentDialog({ name: name.value, tag: tag.value }),
+    }), "small")));
+  const schemaHint = node("p", { class: "subtle", hidden: !schemas.length },
+    t("Use a composition schema to define which assets and parameters this group contains."));
+  const legacyHint = node("p", { class: "subtle", hidden: true }, t("Fixed Agent bindings use the original editor."));
+
+  function showOptions() {
+    schemaFields.hidden = legacy.checked || !schemas.length;
+    noSchema.hidden = legacy.checked || Boolean(schemas.length);
+    schemaHint.hidden = legacy.checked || !schemas.length;
+    legacyHint.hidden = !legacy.checked;
     const entry = schemas.find((item) => item.key === schema.value);
-    versionField.hidden = !entry;
     const versions = entry ? Array.from({ length: entry.latestVersion }, (_, i) => entry.latestVersion - i) : [];
     setOptions(version, versions.map((n) => [n, "v" + n]));
   }
-  schema.addEventListener("change", showVersions);
-  showVersions();
-  formDialog(t("New experiment"), [field(t("Name"), name), field(t("Experiment tag"), tag, t("Used by clients to retrieve the active release.")),
-    field(t("Experiment schema"), schema, schemas.length
-      ? t("Use an Experiment schema to define exactly which fields this group contains.")
-      : t("No experiment schema is registered. You can create one under Schemas.")), versionField],
-    t("Create experiment"), async () => {
+  legacy.addEventListener("change", showOptions);
+  schema.addEventListener("change", showOptions);
+  showOptions();
+  formDialog(t("New composition"), [field(t("Name"), name), field(t("Experiment tag"), tag, t("Used by clients to retrieve the active release.")),
+    schemaFields, schemaHint, noSchema, node("label", { class: "legacy-option" }, legacy, t("Use existing Agent bindings")), legacyHint],
+    t("Create composition"), async () => {
       if (state.dirty && !window.confirm(t("Discard the unsaved draft edits?"))) return;
       const payload = { name: name.value.trim(), tag: tag.value };
-      if (schema.value) payload.schema = { key: schema.value, version: Number(version.value) };
+      if (!legacy.checked) {
+        if (!schema.value || !version.value) throw new Error(t("Choose an available composition schema."));
+        payload.schema = { key: schema.value, version: Number(version.value) };
+      }
       const created = await api("/experiments", { method: "POST", payload });
       await refreshLists();
       await loadExperiment(created.tag);
       dialog.close();
       render();
-      announce(t("Experiment created."));
+      announce(t("Composition created."));
     });
 }
 
@@ -559,13 +573,28 @@ async function saveDraft() {
   }
 }
 
-function viewJSON(title, data, controls = []) {
+function viewComposition(title, data, controls = []) {
   const rendered = JSON.stringify(data, null, 2);
-  modal(title, node("section", {},
+  const outline = compositionOutline(data);
+  const code = node("pre", { class: "json-output", tabindex: "0", hidden: true }, rendered);
+  const reveal = (showJSON) => {
+    outline.hidden = showJSON;
+    code.hidden = !showJSON;
+    structure.setAttribute("aria-pressed", String(!showJSON));
+    json.setAttribute("aria-pressed", String(showJSON));
+    copy.hidden = !showJSON;
+  };
+  const structure = button(t("Structure"), () => reveal(false), "small", { "aria-pressed": "true" });
+  const json = button("JSON", () => reveal(true), "small", { "aria-pressed": "false" });
+  const copy = button(t("Copy JSON"), async () => {
+    await navigator.clipboard.writeText(rendered);
+    announce(t("JSON copied."));
+  });
+  copy.hidden = true;
+  modal(title, node("section", { class: "fields" },
     node("div", { hidden: true, class: "error", role: "alert", "data-error": true }),
-    node("pre", { class: "json-output", tabindex: "0" }, rendered),
-    node("div", { class: "form-actions" },
-      button(t("Copy JSON"), async () => { await navigator.clipboard.writeText(rendered); announce(t("JSON copied.")); }), controls)));
+    node("div", { class: "filters preview-modes" }, structure, json),
+    outline, code, node("div", { class: "form-actions" }, copy, controls)));
 }
 
 async function previewDraft() {
@@ -596,13 +625,13 @@ async function previewDraft() {
   const hint = alreadyReleased
     ? node("p", { class: "subtle" }, t("This revision is already in release history."))
     : (empty ? node("p", { class: "subtle" }, t("Add at least one Agent before publishing.")) : null);
-  viewJSON(t("Preview · draft r{revision}", { revision: data.draftRevision }), data, [hint, publishButton]);
+  viewComposition(t("Preview composition · draft r{revision}", { revision: data.draftRevision }), data, [hint, publishButton]);
 }
 
 async function viewRelease(tag, releaseId) {
   const path = configPath(tag, releaseId);
   const data = await api(path);
-  viewJSON(data.releaseId, data, [node("a", { class: "button", href: "/api/v1" + path,
+  viewComposition(data.releaseId, data, [node("a", { class: "button", href: "/api/v1" + path,
     target: "_blank", rel: "noopener" }, t("Open API response"))]);
 }
 
@@ -685,12 +714,14 @@ function jsonPayload(fields, property, source) {
   return JSON.stringify(fields).slice(0, -1) + "," + JSON.stringify(property) + ":" + source.trim() + "}";
 }
 
-function schemaDialog(item, source) {
+function schemaDialog(item, source, options = {}) {
   const key = keyInput(item?.key ?? "");
   const name = input({ required: true, maxlength: 80 });
-  const kind = select(Object.entries(labels).map(([id, name]) => [id, t(name)]));
+  const kind = select(Object.entries(labels).map(([id, name]) => [id, t(name)]), options.kind);
   const root = { "$schema": "https://json-schema.org/draft/2020-12/schema", type: "object",
-    properties: { message: { type: "string" } }, required: ["message"] };
+    ...(options.kind === "experiment"
+      ? { properties: { primary: { "x-asset": "agent" } }, required: ["primary"] }
+      : { properties: { message: { type: "string" } }, required: ["message"] }) };
   const editor = jsonEditor("JSON Schema", source?.definition ?? root);
   const fields = item ? [editor.container] : [field(t("Name"), name),
     node("div", { class: "form-columns" }, field(t("Schema key"), key), field(t("Asset type"), kind)),
@@ -704,6 +735,7 @@ function schemaDialog(item, source) {
     dialog.close();
     render();
     announce(item ? t("Schema version created.") : t("Schema created."));
+    options.onSaved?.();
   });
 }
 

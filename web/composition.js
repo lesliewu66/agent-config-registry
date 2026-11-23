@@ -71,7 +71,7 @@ function shapeField(root, definition, label, value, changed, depth, required) {
 function assetField(label, shape, value, changed, required) {
   const kinds = Array.isArray(shape["x-asset"]) ? shape["x-asset"] : [shape["x-asset"]];
   const eligible = state.assets.filter((asset) => kinds.includes(asset.kind));
-  const picker = select(eligible.map((asset) => [asset.key, labels[asset.kind] + " · " + displayName(asset)]),
+  const picker = select(eligible.map((asset) => [asset.key, (kinds.length > 1 ? labels[asset.kind] + " · " : "") + displayName(asset)]),
     value?.assetKey ?? "", t("Choose an asset"));
   picker.required = Boolean(required);
   const version = select([], "", t("Choose a version"));
@@ -108,9 +108,8 @@ function assetField(label, shape, value, changed, required) {
   const selected = eligible.find((item) => item.key === value?.assetKey);
   void load(selected, value?.version);
   return node("fieldset", { class: "schema-fieldset", "aria-label": label },
-    node("legend", {}, label), node("div", { class: "form-columns" },
-      field(t("Asset"), picker), field(t("Version"), version)),
-    node("small", { class: "subtle" }, kinds.map((kind) => labels[kind]).join(" / ")));
+    node("legend", {}, label), node("div", { class: "form-columns asset-picker-columns" },
+      field(t("Asset"), picker), field(t("Version"), version)));
 }
 
 function arrayField(root, shape, label, value, changed, depth) {
@@ -154,4 +153,76 @@ function simpleField(shape, label, current, changed, required) {
     if (!control.validity.badInput) changed(read());
   });
   return field(label, control, typeof shape.description === "string" ? shape.description : undefined);
+}
+
+function compositionOutline(data) {
+  const draft = state.schemaDraft;
+  const definition = data.schema && draft && data.schema.key === draft.schema.key
+    ? draft.versions.find((item) => item.version === data.schema.version)?.definition
+    : undefined;
+  const root = definition ?? {};
+  let shown = 0;
+  let truncated = false;
+  function limit(depth) {
+    if (++shown <= 200 && depth < 16) return false;
+    truncated = true;
+    return true;
+  }
+
+  function list(children) {
+    return children.length ? node("ul", {}, children) : null;
+  }
+
+  function assetRow(label, asset, children) {
+    const name = displayName({ key: asset.assetKey, name: asset.name ?? asset.assetKey });
+    return node("li", { class: "outline-row outline-asset" },
+      node("div", { class: "outline-field" }, label),
+      node("div", { class: "asset-title" }, tagLabel(labels[asset.kind], asset.kind),
+        node("strong", {}, name), tagLabel("v" + asset.version)),
+      list(children));
+  }
+
+  function rows(value, schema, depth, onlyAssets = false) {
+    const shape = schemaShape(root, schema);
+    if (!value || typeof value !== "object") return [];
+    const items = Array.isArray(value)
+      ? value.map((item, i) => [t("Item {number}", { number: i + 1 }), item, shape.items])
+      : Object.entries(value).map(([key, item]) => {
+        const fieldShape = Object.hasOwn(shape.properties ?? {}, key) ? shape.properties[key] : undefined;
+        return [schemaLabel(fieldShape, key), item, fieldShape];
+      });
+    const result = [];
+    for (const [label, item, fieldShape] of items) {
+      if (limit(depth)) break;
+      if (item && typeof item === "object" && Object.hasOwn(labels, item.kind) && typeof item.assetKey === "string" && Number.isInteger(item.version) && item.schema && item.config) {
+        result.push(assetRow(label, item, rows(item.config, undefined, depth + 1, true)));
+        continue;
+      }
+      if (item !== null && typeof item === "object" && !JSON.isRawJSON?.(item)) {
+        const children = rows(item, fieldShape, depth + 1, onlyAssets);
+        if (children.length) {
+          result.push(node("li", { class: "outline-row" }, node("div", { class: "outline-field" }, label), list(children)));
+          continue;
+        }
+        if (Object.keys(item).length) continue;
+      }
+      if (!onlyAssets) {
+        result.push(node("li", { class: "outline-row outline-value" },
+          node("span", { class: "outline-field" }, label), node("code", {}, JSON.stringify(item))));
+      }
+    }
+    return result;
+  }
+
+  const items = data.schema
+    ? rows(data.config, root, 0)
+    : data.agents.map((agent) => assetRow(agent.slot, { ...agent, kind: "agent" }, [
+      ...agent.skills.map((item) => assetRow(item.slot, { ...item, kind: "skill" }, rows(item.config, undefined, 1, true))),
+      ...agent.prompts.map((item) => assetRow(item.slot, { ...item, kind: "prompt" }, rows(item.config, undefined, 1, true))),
+      ...rows(agent.config, undefined, 0, true),
+    ]));
+
+  return node("div", { class: "preview-outline" },
+    list(items) ?? node("p", { class: "subtle" }, t("No fields to preview.")),
+    truncated ? node("p", { class: "subtle" }, t("Open JSON to see all fields.")) : null);
 }
