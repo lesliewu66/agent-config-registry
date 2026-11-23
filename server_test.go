@@ -406,3 +406,26 @@ func TestDemoPublishesBusinessFieldsAlongsideBranchAssets(t *testing.T) {
 		t.Fatalf("branch assets did not resolve independently: %s", body)
 	}
 }
+
+func TestCompositionPublishesOrdinaryBusinessFieldsWithoutAssets(t *testing.T) {
+	_, h, _ := testAPI(t, false)
+	const definition = `{"key":"metadata","name":"Metadata","kind":"experiment","definition":{"type":"object","required":["when","branches"],"properties":{"when":{"type":"string"},"branches":{"type":"integer"}}}}`
+	invoke(t, h, 201, "POST", "/api/v1/schemas", definition)
+	invoke(t, h, 201, "POST", "/api/v1/experiments",
+		`{"tag":"business-metadata","name":"Business metadata","schema":{"key":"metadata","version":1}}`)
+	const path = "/api/v1/experiments/business-metadata"
+	invoke(t, h, 422, "PUT", path+"/draft",
+		`{"expectedRevision":0,"schema":{"key":"metadata","version":1},"config":{"when":true,"branches":3}}`)
+	invoke(t, h, 200, "PUT", path+"/draft",
+		`{"expectedRevision":0,"schema":{"key":"metadata","version":1},"config":{"when":"manual-review","branches":3}}`)
+	invoke(t, h, 201, "POST", path+"/releases", `{"expectedRevision":1,"expectedActiveReleaseId":null}`)
+	published := decodeTest[Config](t, invoke(t, h, 200, "GET", "/api/v1/config?tag=business-metadata", ""))
+	payload := decodeTest[struct {
+		When     string `json:"when"`
+		Branches int    `json:"branches"`
+	}](t, string(published.Config))
+	if published.ReleaseID != "business-metadata@1" || len(published.Agents) != 0 ||
+		payload.When != "manual-review" || payload.Branches != 3 {
+		t.Fatalf("custom fields did not survive publication: %s", published.Config)
+	}
+}

@@ -70,7 +70,7 @@ Register a Schema with `kind: "experiment"` and use `x-asset` in its `properties
 
 Send `schema: {"key":"routing-profile","version":1}` when creating an experiment. Use `expectedRevision`, `schema`, and `config` when saving its draft. For example, `config.primary` can be `{"assetKey":"schema-support-agent","version":1}`. The server validates the version and kind of that reference and stores it with the draft.
 
-Preview and publish use the same endpoints as the original experiment format. In published responses, `config` contains the named fields and expanded asset objects. The underlying asset JSON is nested under each resolved asset's own `config`.
+Preview and publish use the same endpoints as the original experiment format. In published responses, `config` contains the named fields and expanded asset objects. Business fields follow only their JSON Schema. Names such as `when` and `branches` are ordinary fields whose meaning belongs to the caller. The underlying asset JSON is nested under each resolved asset's own `config`.
 
 See the [Schema composition spec](../specs/002-schema-composition/spec.md) and [complete sample](../examples/schema-routing.json).
 
